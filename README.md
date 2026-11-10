@@ -1,83 +1,78 @@
 <p align="center">
-  <img src="docs/icon-1024.png" width="140" alt="Backup Control icon">
+  <img src="docs/icon-1024.png" width="128" alt="Backup Control icon">
 </p>
 
 <h1 align="center">Backup Control</h1>
 
 <p align="center">
-  A small, native macOS app that puts a friendly face on
-  <a href="https://restic.net">restic</a> + <a href="https://rclone.org">rclone</a>
+  A small native macOS app that puts a friendly face on
+  <a href="https://restic.net">restic</a> + <a href="https://rclone.org">rclone</a> —
   encrypted, incremental backups to OneDrive.
 </p>
 
 <p align="center">
-  <img alt="platform" src="https://img.shields.io/badge/macOS-14%2B-blue">
-  <img alt="license" src="https://img.shields.io/badge/license-MIT-green">
-  <img alt="deps" src="https://img.shields.io/badge/deps-restic%20%7C%20rclone-lightgrey">
+  <b>English</b> · <a href="README.zh-CN.md">简体中文</a>
+</p>
+
+<p align="center">
+  <img alt="macOS" src="https://img.shields.io/badge/macOS-14%2B-blue">
+  <img alt="Swift" src="https://img.shields.io/badge/Swift-SwiftUI-orange">
+  <img alt="License" src="https://img.shields.io/badge/license-MIT-green">
 </p>
 
 ---
 
-## What it does
+## Features
 
 - **One-click backup** to OneDrive — encrypted on your Mac before upload
 - **Incremental & deduplicated** — only new or changed chunks are uploaded
-- **Choose what to back up** — Documents, Desktop, Pictures, Music, Downloads, dotfiles, or your whole home folder
+- **Pick what to back up** — Documents, Desktop, Pictures, Music, Downloads, dotfiles, or the whole home folder
 - **Live estimates** — size, file count, measured upload speed and ETA before every run
-- **Data caps** — monthly upload budget, bandwidth limit, AC-power only
-- **Scheduled** — daily at a time you pick (launchd), low priority I/O
-- **Restore-friendly** — snapshots are content-addressed; deleted files stay recoverable
-- **English / 简体中文** UI, light & dark mode
-- No account, no telemetry, no analytics
+- **Data budgets** — monthly upload cap, bandwidth limit, AC-power only
+- **Scheduling** — daily at a time you choose, via `launchd`, low-priority I/O
+- **Restore-friendly** — content-addressed snapshots; deleted files stay recoverable
+- **First-run wizard** — detects the tools, lists remotes, initializes the repository
+- **English / 简体中文** UI, light and dark mode
 
 ## Requirements
 
 | | |
 |---|---|
 | macOS | 14 Sonoma or newer |
-| Tools | [`restic`](https://restic.net) and [`rclone`](https://rclone.org) (`brew install restic rclone`) |
-| Remote | An rclone remote with `rclone config` (examples assume the name `onedrive`) |
-| Build | Xcode Command Line Tools (`xcode-select --install`) |
+| Engines | [`restic`](https://restic.net) and [`rclone`](https://rclone.org) |
+| Remote | an existing rclone remote (examples use `onedrive`) |
+| Build | Xcode Command Line Tools |
 
 ## Setup
 
 ```bash
-# 1. Install the two engines
 brew install restic rclone
+rclone config                     # create the remote, e.g. "onedrive"
 
-# 2. Create an rclone remote (OAuth in your browser)
-rclone config          # n → onedrive → Microsoft OneDrive → follow prompts
-
-# 3. Build the app
-git clone https://github.com/<you>/backup-control.git
+git clone https://github.com/Young-Gl/backup-control.git
 cd backup-control
 ./build.sh
-
-# 4. Run it
 open "build/Backup Control.app"
 ```
 
 ### First run
 
-The app opens a setup wizard and checks:
+The wizard checks for `restic` / `rclone`, lists your rclone remotes, then asks for:
 
-| Check | What it does |
+| Field | Meaning |
 |---|---|
-| **restic / rclone** | verifies both binaries are on `PATH` |
-| **rclone remotes** | lists what `rclone listremotes` finds |
-| **Remote + folder** | where the encrypted repository lives (e.g. `onedrive` + `MacBackup/restic`) |
-| **Password** | generates a strong one, or type your own (min. 8 chars) |
+| Remote | name of the rclone remote |
+| Folder | path inside it, e.g. `MacBackup/restic` |
+| Password | encrypts every snapshot — generate one or type your own |
 
-Press **Initialize repository** — the app runs `restic init` for you, stores the
-password in `~/Library/Application Support/macbackup/restic.pass` (mode 600), and
-unlocks the main window.
+Press **Initialize repository**. The app runs `restic init`, stores the password at
+`~/Library/Application Support/macbackup/restic.pass` (mode `600`), and opens the main window.
 
-> The remote must already exist in `rclone config`. The app never creates or
-> modifies rclone configuration.
+> The wizard never modifies your rclone configuration.
 
-### Configure remote name / path
+### Configuration
 
-`config.json`:
+`~/Library/Application Support/macbackup/config.json`
 
 ```json
 {
@@ -95,11 +90,9 @@ unlocks the main window.
 }
 ```
 
-`remote` must match an rclone remote name. `repoPath` is the folder inside it.
-
 ## Restoring
 
-Always restore to a scratch folder first:
+Restore to a scratch folder first — never straight over your live files:
 
 ```bash
 export RESTIC_PASSWORD_FILE="$HOME/Library/Application Support/macbackup/restic.pass"
@@ -110,37 +103,46 @@ restic restore latest --target ~/Desktop/Restore
 restic restore <snapshot-id> --target /tmp/one --include "/Users/you/Documents/report.docx"
 ```
 
-> **Keep the repository password safe.** Without it the data is unrecoverable —
-> restic cannot reset it. A copy in your password manager is strongly advised.
+> Keep the repository password safe. Without it the data cannot be recovered —
+> restic has no password reset.
 
-## How it compares to Time Machine
+## Backup Control vs. Time Machine
 
 | | Backup Control | Time Machine |
 |---|---|---|
-| Scope | user data you select | whole system |
+| Scope | selected user data | whole system |
 | Destination | any rclone remote | local disk / supported NAS |
-| Encryption at rest | always (client-side) | depends on target |
+| Encryption at rest | always, client-side | depends on target |
 | Full-system recovery | no | yes |
 
-They solve different problems — use both if you can.
+They solve different problems. Use both if you can.
+
+## How it works
+
+```
+SwiftUI app ──► scripts/backup.sh ──► restic ──► rclone ──► OneDrive
+                     │                  │
+                     └── launchd        └── AES-256 + Poly1305, chunked dedup
+```
+
+The app only orchestrates: it writes a `launchd` job, runs the shell script, and
+reads back state. All backup and encryption work is done by restic.
 
 ## Legal & disclaimers
 
-- **Not affiliated** with Microsoft, OneDrive, Apple, restic or rclone. Names are
-  used descriptively only; no logos are included.
-- **Encryption**: the app invokes restic, which encrypts with AES-256 + Poly1305.
-  No cryptographic code is implemented here.
-- **No warranty.** This is backup software: test your restores. Provided under
-  the MIT license, without warranty of any kind.
-- **Your data, your keys.** Credentials live in
-  `~/.config/rclone/rclone.conf` and the restic password file; the app never
-  transmits them anywhere except to the configured remote via rclone.
-- The app icon and glyphs in this repository are original vector artwork.
+- Not affiliated with Microsoft, OneDrive, Apple, restic or rclone. Names are
+  used descriptively; no third-party logos are included.
+- The app implements no cryptography — it invokes restic (AES-256 + Poly1305).
+- **Backup software: test your restores.** Provided under the MIT license,
+  without warranty of any kind.
+- Your credentials stay local: the rclone config in `~/.config/rclone/` and the
+  restic password file are never sent anywhere except to your configured remote.
+- Icon and artwork in this repository are original vector work.
 
 ## License
 
 MIT — see [LICENSE](LICENSE).
 
----
-
-<p align="center"><sub>Built with SwiftUI. Ships no binaries, no telemetry, no accounts.</sub></p>
+<p align="center">
+  <sub>SwiftUI · macOS 14+ · no accounts, no telemetry</sub>
+</p>
