@@ -19,6 +19,18 @@
   <img alt="License" src="https://img.shields.io/badge/license-MIT-green">
 </p>
 
+<p align="center">
+  <img src="docs/setup.png" width="600" alt="首次运行向导"><br>
+  <sub><i>首次运行 —— 向导自动检测依赖并初始化仓库</i></sub>
+</p>
+
+<p align="center">
+  <img src="docs/main-window.png" width="600" alt="主窗口"><br>
+  <sub><i>选择备份范围 —— 大小与预计耗时都是实时测量</i></sub>
+</p>
+
+<p align="center"><sub>截图由真实 SwiftUI 界面渲染生成,使用示例数据;图中 IP 为文档专用保留地址 203.0.113.42。</sub></p>
+
 ---
 
 ## 功能

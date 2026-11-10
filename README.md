@@ -20,6 +20,18 @@
   <img alt="License" src="https://img.shields.io/badge/license-MIT-green">
 </p>
 
+<p align="center">
+  <img src="docs/setup.png" width="600" alt="Setup wizard"><br>
+  <sub><i>First run — the wizard checks your tools and initializes the repository</i></sub>
+</p>
+
+<p align="center">
+  <img src="docs/main-window.png" width="600" alt="Main window"><br>
+  <sub><i>Pick what to back up — sizes and ETAs are measured live</i></sub>
+</p>
+
+<p align="center"><sub>Screenshots are rendered from the real SwiftUI views with sample data — the IP shown is the reserved documentation address 203.0.113.42.</sub></p>
+
 ---
 
 ## Features

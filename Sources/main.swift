@@ -53,14 +53,20 @@ struct Estimate: Decodable {
     let uploadBps: Double?
     let egressIP: String?
     let egressCC: String?
+    let egressCity: String?
     let categories: [String: CatInfo]?
 }
 
 // MARK: - Store
 
 final class BackupStore: ObservableObject {
-    static let base = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Application Support/macbackup")
+    static let base: URL = {
+        if let override = getenv("BACKUP_CONTROL_HOME").map({ String(cString: $0) }) {
+            return URL(fileURLWithPath: override)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/macbackup")
+    }()
 
     @Published var config = Config()
     @Published var state: RunState? = nil
@@ -261,6 +267,18 @@ final class BackupStore: ObservableObject {
     // MARK: run
 
     func loadCategories() {
+        if getenv("BACKUP_CONTROL_PREVIEW") != nil {
+            if let data = try? Data(contentsOf: Self.base.appendingPathComponent("preview.json")),
+               let e = try? JSONDecoder().decode(Estimate.self, from: data) {
+                categories = e.categories ?? [:]
+                uploadBps = e.uploadBps ?? 0
+                if let ip = e.egressIP {
+                    egressIP = ip
+                    egressRegion = [e.egressCity, e.egressCC].compactMap { $0 }.joined(separator: ", ")
+                }
+            }
+            return
+        }
         scanning = true
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/bash")
@@ -1137,6 +1155,7 @@ struct SetupView: View {
 // MARK: - App
 
 
+#if !RENDER_PREVIEW
 @main
 struct BackupApp: App {
     var body: some Scene {
@@ -1149,3 +1168,4 @@ struct BackupApp: App {
         }
     }
 }
+#endif
