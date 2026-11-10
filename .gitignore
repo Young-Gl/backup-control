@@ -1,0 +1,6 @@
+build/
+.modulecache/
+*.app/
+AppIcon.iconset/
+.DS_Store
+*.xcuserstate
