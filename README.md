@@ -53,12 +53,27 @@ git clone https://github.com/<you>/backup-control.git
 cd backup-control
 ./build.sh
 
-# 4. Run it (first launch asks for Full Disk Access if you back up protected folders)
+# 4. Run it
 open "build/Backup Control.app"
 ```
 
-On first launch the app copies its helper scripts to
-`~/Library/Application Support/macbackup/` and creates `config.json`.
+### First run
+
+The app opens a setup wizard and checks:
+
+| Check | What it does |
+|---|---|
+| **restic / rclone** | verifies both binaries are on `PATH` |
+| **rclone remotes** | lists what `rclone listremotes` finds |
+| **Remote + folder** | where the encrypted repository lives (e.g. `onedrive` + `MacBackup/restic`) |
+| **Password** | generates a strong one, or type your own (min. 8 chars) |
+
+Press **Initialize repository** — the app runs `restic init` for you, stores the
+password in `~/Library/Application Support/macbackup/restic.pass` (mode 600), and
+unlocks the main window.
+
+> The remote must already exist in `rclone config`. The app never creates or
+> modifies rclone configuration.
 
 ### Configure remote name / path
 
@@ -68,6 +83,7 @@ On first launch the app copies its helper scripts to
 {
   "remote": "onedrive",
   "repoPath": "MacBackup/restic",
+  "initialized": true,
   "autoEnabled": false,
   "hour": 3,
   "minute": 0,

@@ -13,6 +13,9 @@ struct Config: Codable {
     var language: String = "en"
     var useProxy: Bool = false
     var scope: [String] = ["documents", "desktop", "pictures", "dotfiles"]
+    var remote: String = "onedrive"
+    var repoPath: String = "MacBackup/restic"
+    var initialized: Bool = false
 
     init() {}
     init(from decoder: Decoder) throws {
@@ -25,6 +28,9 @@ struct Config: Codable {
         language = (try? c.decodeIfPresent(String.self, forKey: .language)) ?? "en"
         useProxy = (try? c.decodeIfPresent(Bool.self, forKey: .useProxy)) ?? false
         scope = (try? c.decodeIfPresent([String].self, forKey: .scope)) ?? ["documents", "desktop", "pictures", "dotfiles"]
+        remote = (try? c.decodeIfPresent(String.self, forKey: .remote)) ?? "onedrive"
+        repoPath = (try? c.decodeIfPresent(String.self, forKey: .repoPath)) ?? "MacBackup/restic"
+        initialized = (try? c.decodeIfPresent(Bool.self, forKey: .initialized)) ?? false
     }
 }
 
@@ -64,6 +70,10 @@ final class BackupStore: ObservableObject {
     @Published var categories: [String: CatInfo] = [:]
     @Published var uploadBps: Double = 0
     @Published var scanning = false
+    @Published var resticOK = false
+    @Published var rcloneOK = false
+    @Published var remotes: [String] = []
+    @Published var initialized = false
     @Published var egressIP: String?
     @Published var egressRegion: String?
     private var lastIPFetch: Date = .distantPast
@@ -87,6 +97,67 @@ final class BackupStore: ObservableObject {
     init() {
         ensureSetup()
         refresh()
+        initialized = config.initialized
+        checkEnvironment()
+    }
+
+    func checkEnvironment() {
+        let fm = FileManager.default
+        resticOK = fm.isExecutableFile(atPath: "/usr/local/bin/restic")
+            || fm.isExecutableFile(atPath: "/opt/homebrew/bin/restic")
+        rcloneOK = fm.isExecutableFile(atPath: "/usr/local/bin/rclone")
+            || fm.isExecutableFile(atPath: "/opt/homebrew/bin/rclone")
+    }
+
+    func loadRemotes() {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/bash")
+        p.arguments = ["-lc", "rclone listremotes 2>/dev/null | sed 's/:$//'"]
+        var env = ProcessInfo.processInfo.environment
+        env["PATH"] = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin"
+        p.environment = env
+        let pipe = Pipe(); p.standardOutput = pipe; p.standardError = Pipe()
+        p.terminationHandler = { [weak self] _ in
+            let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            let list = out.split(whereSeparator: \.isNewline).map(String.init).filter { !$0.isEmpty }
+            DispatchQueue.main.async { self?.remotes = list }
+        }
+        try? p.run()
+    }
+
+    func initializeRepo(remote: String, path: String, password: String,
+                        completion: @escaping (String?) -> Void) {
+        let passFile = Self.base.appendingPathComponent("restic.pass")
+        try? password.write(to: passFile, atomically: true, encoding: .utf8)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: passFile.path)
+
+        config.remote = remote
+        config.repoPath = path
+        saveConfig()
+
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/bash")
+        p.arguments = ["-lc", "restic -r rclone:\(remote):\(path) init 2>&1"]
+        var env = ProcessInfo.processInfo.environment
+        env["PATH"] = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin"
+        env["RESTIC_PASSWORD_FILE"] = passFile.path
+        p.environment = env
+        let pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
+        p.terminationHandler = { [weak self] _ in
+            let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            let ok = out.contains("created restic repository") || out.contains("already")
+            DispatchQueue.main.async {
+                if ok {
+                    self?.config.initialized = true
+                    self?.saveConfig()
+                    self?.initialized = true
+                    completion(nil)
+                } else {
+                    completion(out.isEmpty ? "Initialization failed." : out)
+                }
+            }
+        }
+        try? p.run()
     }
 
     /// Create the support directory, deploy bundled scripts, and write defaults.
@@ -105,7 +176,8 @@ final class BackupStore: ObservableObject {
         if !fm.fileExists(atPath: configURL.path) {
             let defaults = """
             {"autoEnabled":false,"hour":3,"minute":0,"monthlyCapGB":25,"bwlimitMB":2,\
-            "language":"en","useProxy":false,\
+            "language":"en","useProxy":false,"initialized":false,\
+            "remote":"onedrive","repoPath":"MacBackup/restic",\
             "scope":["documents","desktop","pictures","dotfiles"]}
             """
             try? defaults.write(to: configURL, atomically: true, encoding: .utf8)
@@ -404,6 +476,16 @@ struct ContentView: View {
     private var l: Loc { Loc(zh: store.config.language == "zh") }
 
     var body: some View {
+        Group {
+            if store.initialized {
+                mainBody
+            } else {
+                SetupView(store: store)
+            }
+        }
+    }
+
+    private var mainBody: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 header
@@ -934,7 +1016,126 @@ struct ContentView: View {
     }
 }
 
+
+// MARK: - Setup
+
+struct SetupView: View {
+    @ObservedObject var store: BackupStore
+    @State private var remote: String = "onedrive"
+    @State private var repoPath: String = "MacBackup/restic"
+    @State private var password: String = ""
+    @State private var busy = false
+    @State private var error: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Welcome to Backup Control").font(.largeTitle.weight(.bold))
+                Text("Encrypted, incremental backups to OneDrive — powered by restic and rclone.")
+                    .foregroundStyle(.secondary)
+            }
+
+            GroupBox("Environment") {
+                VStack(alignment: .leading, spacing: 8) {
+                    row("restic", store.resticOK)
+                    row("rclone", store.rcloneOK)
+                    HStack {
+                        Text("rclone remotes: " + (store.remotes.isEmpty ? "none found" : store.remotes.joined(separator: ", ")))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Refresh") {
+                            store.checkEnvironment()
+                            store.loadRemotes()
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+                .padding(6)
+            }
+
+            GroupBox("Repository") {
+                VStack(alignment: .leading, spacing: 10) {
+                    LabeledContent("Remote") {
+                        TextField("onedrive", text: $remote)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 210)
+                    }
+                    LabeledContent("Folder") {
+                        TextField("MacBackup/restic", text: $repoPath)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 210)
+                    }
+                    LabeledContent("Password") {
+                        HStack(spacing: 6) {
+                            SecureField("at least 8 characters", text: $password)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 210)
+                            Button("Generate") {
+                                password = UUID().uuidString + UUID().uuidString
+                            }
+                        }
+                    }
+                    Label("This password encrypts every snapshot. Save it in your password manager — it cannot be reset.",
+                          systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+                .padding(6)
+            }
+
+            if let e = error {
+                Text(e).font(.callout).foregroundStyle(.red).textSelection(.enabled)
+            }
+
+            Spacer()
+
+            HStack {
+                if !store.remotes.isEmpty {
+                    Text("Tip: the remote must already exist in rclone config.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                Spacer()
+                Button(busy ? "Initializing…" : "Initialize repository") {
+                    busy = true
+                    error = nil
+                    store.initializeRepo(remote: remote, path: repoPath, password: password) { err in
+                        busy = false
+                        if let err { error = err }
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(busy || password.count < 8 || remote.isEmpty || repoPath.isEmpty
+                          || !store.resticOK || !store.rcloneOK)
+            }
+        }
+        .padding(26)
+        .frame(width: 660, height: 600)
+        .onAppear {
+            remote = store.config.remote
+            repoPath = store.config.repoPath
+            store.checkEnvironment()
+            store.loadRemotes()
+        }
+    }
+
+    private func row(_ name: String, _ ok: Bool) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: ok ? "checkmark.circle.fill" : "xmark.octagon.fill")
+                .foregroundStyle(ok ? .green : .red)
+            Text(name)
+            Spacer()
+            Text(ok ? "found" : "missing — run: brew install " + name)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
 // MARK: - App
+
 
 @main
 struct BackupApp: App {
