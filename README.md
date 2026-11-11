@@ -42,6 +42,10 @@
 - **Live estimates** — size, file count, measured upload speed and ETA before every run
 - **Data budgets** — monthly upload cap, bandwidth limit, AC-power only
 - **Scheduling** — daily at a time you choose, via `launchd`, low-priority I/O
+- **Resumable** — restic keeps what has already been uploaded; if the network
+  drops the app retries up to five times, waits for the connection, and offers
+  **Resume Backup** instead of starting over
+
 - **Restore-friendly** — content-addressed snapshots; deleted files stay recoverable
 - **First-run wizard** — detects the tools, lists remotes, initializes the repository
 - **English / 简体中文** UI, light and dark mode

@@ -172,9 +172,12 @@ final class BackupStore: ObservableObject {
         try? fm.createDirectory(at: Self.base, withIntermediateDirectories: true)
 
         for name in ["backup.sh", "estimate.py"] {
-            let dst = Self.base.appendingPathComponent(name)
-            guard !fm.fileExists(atPath: dst.path) else { continue }
             guard let src = Bundle.main.resourceURL?.appendingPathComponent("scripts/\(name)") else { continue }
+            let dst = Self.base.appendingPathComponent(name)
+            let srcData = try? Data(contentsOf: src)
+            let dstData = try? Data(contentsOf: dst)
+            if dstData != nil && dstData == srcData { continue }   // already current
+            try? fm.removeItem(at: dst)
             try? fm.copyItem(at: src, to: dst)
             try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: dst.path)
         }
@@ -387,12 +390,19 @@ final class BackupStore: ObservableObject {
         return f.string(from: d)
     }
 
+    var canResume: Bool {
+        guard let st = state?.status else { return false }
+        return ["error", "retrying", "offline", "interrupted"].contains(st)
+    }
+
     var statusColor: Color {
         guard let st = state?.status else { return .gray }
         switch st {
         case "ok": return .green
         case "skipped", "capped": return .orange
         case "error": return .red
+        case "retrying": return .orange
+        case "offline": return .secondary
         default: return .gray
         }
     }
@@ -435,6 +445,9 @@ struct Loc {
     var skipped: String { s("Skipped", "已跳过") }
     var capped: String { s("Capped", "已达上限") }
     var failed: String { s("Failed", "失败") }
+    var retrying: String { s("Retrying", "重试中") }
+    var offline: String { s("Offline", "离线") }
+    var resume: String { s("Resume Backup", "继续备份") }
     var idle: String { s("Idle", "空闲") }
     var acOnly: String { s("Runs only while plugged in", "仅在接通电源时运行") }
     var firstHint: String { s("First full backup ≈ 30 GB — prefer Wi-Fi", "首次全量约 30 GB,建议用 Wi-Fi") }
@@ -941,6 +954,8 @@ struct ContentView: View {
                     } else if estimating {
                         ProgressView().controlSize(.small)
                         Text(l.estimating)
+                    } else if store.canResume {
+                        Label(l.resume, systemImage: "arrow.clockwise.circle.fill")
                     } else {
                         Label(l.backUpNow, systemImage: "arrow.up.circle.fill")
                     }
@@ -1019,6 +1034,8 @@ struct ContentView: View {
         case "skipped": return l.skipped
         case "capped": return l.capped
         case "error": return l.failed
+        case "retrying": return l.retrying
+        case "offline": return l.offline
         default: return l.idle
         }
     }
@@ -1029,6 +1046,8 @@ struct ContentView: View {
         case "ok": return .green
         case "skipped", "capped": return .orange
         case "error": return .red
+        case "retrying": return .orange
+        case "offline": return .secondary
         default: return .secondary
         }
     }

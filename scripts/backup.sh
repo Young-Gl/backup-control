@@ -128,26 +128,56 @@ done
 [ ${#PATHS[@]} -eq 0 ] && PATHS=("$HOME")
 echo "scope: ${PATHS[*]}" >>"$LOG"
 
-nice -n 19 taskpolicy -c background restic backup "${PATHS[@]}" --json \
-  --exclude-caches \
-  --exclude "$HOME/Library/Caches" \
-  --exclude "$HOME/Library/CloudStorage" \
-  --exclude "$HOME/Library/Containers" \
-  --exclude "$HOME/Library/Group Containers" \
-  --exclude "$HOME/Library/Android" \
-  --exclude "$HOME/Library/Daemon Containers" \
-  --exclude "$HOME/Library/Application Support/Code/Cache" \
-  --exclude "$HOME/Library/Application Support/Code/CachedData" \
-  --exclude "$HOME/Library/Application Support/Code/User/workspaceStorage" \
-  --exclude "$HOME/Library/Application Support/OrbStack" \
-  --exclude "$HOME/.orbstack" \
-  --exclude "$HOME/Documents/virtual" \
-  --exclude "$HOME/.Trash" \
-  --exclude "node_modules" --exclude "*/node_modules" \
-  --exclude "__pycache__" --exclude "*/.venv" --exclude "*/venv" \
-  --exclude "*.pyc" --exclude "*/DerivedData" \
-  --tag auto >>"$LOG" 2>&1 | tee "$OUT" >/dev/null
-RC=$?
+run_backup_once() {
+  nice -n 19 taskpolicy -c background restic backup "${PATHS[@]}" --json \
+    --exclude-caches \
+    --exclude "$HOME/Library/Caches" \
+    --exclude "$HOME/Library/CloudStorage" \
+    --exclude "$HOME/Library/Containers" \
+    --exclude "$HOME/Library/Group Containers" \
+    --exclude "$HOME/Library/Android" \
+    --exclude "$HOME/Library/Daemon Containers" \
+    --exclude "$HOME/Library/Application Support/Code/Cache" \
+    --exclude "$HOME/Library/Application Support/Code/CachedData" \
+    --exclude "$HOME/Library/Application Support/Code/User/workspaceStorage" \
+    --exclude "$HOME/Library/Application Support/OrbStack" \
+    --exclude "$HOME/.orbstack" \
+    --exclude "$HOME/Documents/virtual" \
+    --exclude "$HOME/.Trash" \
+    --exclude "node_modules" --exclude "*/node_modules" \
+    --exclude "__pycache__" --exclude "*/.venv" --exclude "*/venv" \
+    --exclude "*.pyc" --exclude "*/DerivedData" \
+    --tag auto >>"$LOG" 2>&1 | tee "$OUT" >/dev/null
+}
+
+wait_for_remote() {
+  local i
+  for i in $(seq 1 20); do
+    rclone lsd "${REMOTE}:" >/dev/null 2>&1 && return 0
+    echo "remote unreachable (check $i), waiting 30s" >>"$LOG"
+    write_state "offline" "Waiting for network" 0
+    sleep 30
+  done
+  return 1
+}
+
+MAX_ATTEMPTS=5
+RC=1
+for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
+  if ! wait_for_remote; then
+    echo "remote still unreachable, giving up" >>"$LOG"
+    write_state "offline" "Remote unreachable" 0
+    exit 0
+  fi
+  run_backup_once
+  RC=$?
+  [ "$RC" -eq 0 ] && break
+  echo "attempt $attempt failed (rc=$RC)" >>"$LOG"
+  if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+    write_state "retrying" "Connection lost · retry $attempt/$MAX_ATTEMPTS" 0
+    sleep $((attempt * 20))
+  fi
+done
 
 ADDED=$(python3 - "$OUT" <<'PY'
 import json,sys
